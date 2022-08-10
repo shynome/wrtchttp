@@ -91,10 +91,8 @@ func (s *Signaler) handleDial(w http.ResponseWriter, r *http.Request) (err error
 	b := try.To1(
 		io.ReadAll(r.Body))
 
-	fmt.Println("result ", id)
 	try.To(
 		s.evs.Emit(id, b))
-	fmt.Println("finish ", id)
 
 	return
 }
