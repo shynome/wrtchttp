@@ -19,11 +19,14 @@ func main() {
 		ortc.New(nil, ortc.DefaultConfig))
 	defer pc.Close()
 
-	roffer := try.To1(
-		exchangeOffer(ortc.Signal{}))
+	offer := try.To1(
+		pc.CreateOffer())
 
-	try.To1(
-		pc.HandleConnect(roffer))
+	roffer := try.To1(
+		exchangeOffer(offer))
+
+	try.To(
+		pc.Handshake(roffer))
 	fmt.Println("wrtc connected")
 
 	l := try.To1(
