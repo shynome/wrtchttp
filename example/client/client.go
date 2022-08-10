@@ -9,7 +9,6 @@ import (
 
 	"github.com/lainio/err2"
 	"github.com/lainio/err2/try"
-	"github.com/pion/webrtc/v3"
 	"github.com/shynome/wrtchttp/example/config"
 	"github.com/shynome/wrtchttp/ortc"
 	"github.com/shynome/wrtchttp/signaler/sdk"
@@ -17,14 +16,14 @@ import (
 
 func main() {
 	pc := try.To1(
-		ortc.New(nil, ortc.DefaultICEGatherOptions))
+		ortc.New(nil, ortc.DefaultConfig))
 	defer pc.Close()
 
 	roffer := try.To1(
-		exchangeOffer(pc.Signal))
+		exchangeOffer(ortc.Signal{}))
 
-	try.To(
-		pc.HandShake(roffer, webrtc.ICERoleControlling))
+	try.To1(
+		pc.HandleConnect(roffer))
 	fmt.Println("wrtc connected")
 
 	l := try.To1(

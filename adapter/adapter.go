@@ -20,7 +20,7 @@ type Adapter interface {
 
 type DefaultAdapter struct {
 	wrtcApi *webrtc.API
-	ice     webrtc.ICEGatherOptions
+	ice     webrtc.Configuration
 
 	sdk *sdk.Sdk
 	// key string
@@ -36,7 +36,7 @@ func NewAdapter(signaler string) (adapter *DefaultAdapter, err error) {
 	sdk := sdk.New(signaler)
 	adapter = &DefaultAdapter{
 		wrtcApi: api,
-		ice:     ortc.DefaultICEGatherOptions,
+		ice:     ortc.DefaultConfig,
 		sdk:     sdk,
 		conns:   make(chan datachannel.ReadWriteCloser),
 	}
@@ -70,12 +70,12 @@ func (a *DefaultAdapter) handleIncomingRequest(ev eventsource.Event) (err error)
 		json.Unmarshal([]byte(ev.Data()), &offer))
 
 	roffer := try.To1(
-		json.Marshal(pc.Signal))
-	try.To(
-		a.sdk.Dial(ev.Id(), roffer))
+		pc.HandleConnect(offer))
 
+	rbody := try.To1(
+		json.Marshal(roffer))
 	try.To(
-		pc.HandShake(offer, webrtc.ICERoleControlled))
+		a.sdk.Dial(ev.Id(), rbody))
 
 	return
 }
