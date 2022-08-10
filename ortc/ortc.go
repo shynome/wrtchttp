@@ -1,25 +1,18 @@
 package ortc
 
 import (
+	"context"
+
 	"github.com/lainio/err2"
 	"github.com/lainio/err2/try"
 	"github.com/pion/webrtc/v3"
 )
 
-type Signal struct {
-	ICECandidates    []webrtc.ICECandidate   `json:"iceCandidates"`
-	ICEParameters    webrtc.ICEParameters    `json:"iceParameters"`
-	DTLSParameters   webrtc.DTLSParameters   `json:"dtlsParameters"`
-	SCTPCapabilities webrtc.SCTPCapabilities `json:"sctpCapabilities"`
-}
+type Signal webrtc.SessionDescription
 
 type ORTC struct {
-	Signal Signal
-
-	api  *webrtc.API
-	ice  *webrtc.ICETransport
-	dtls *webrtc.DTLSTransport
-	sctp *webrtc.SCTPTransport
+	api *webrtc.API
+	pc  *webrtc.PeerConnection
 }
 
 func NewAPI() (api *webrtc.API) {
@@ -32,78 +25,95 @@ func NewAPI() (api *webrtc.API) {
 	return
 }
 
-func New(api *webrtc.API, iceConfig webrtc.ICEGatherOptions) (ortc *ORTC, err error) {
+func New(api *webrtc.API, config webrtc.Configuration) (ortc *ORTC, err error) {
 	defer err2.Return(&err)
 
 	if api == nil {
 		api = NewAPI()
 	}
 
-	gatherer := try.To1(
-		api.NewICEGatherer(iceConfig))
-
-	ice := api.NewICETransport(gatherer)
-
-	dtls := try.To1(
-		api.NewDTLSTransport(ice, nil))
-
-	sctp := api.NewSCTPTransport(dtls)
-
-	gatherFinished := make(chan struct{})
-	gatherer.OnLocalCandidate(func(i *webrtc.ICECandidate) {
-		if i == nil {
-			close(gatherFinished)
-		}
-	})
-	try.To(
-		gatherer.Gather())
-	<-gatherFinished
-
-	iceCandidates := try.To1(
-		gatherer.GetLocalCandidates())
-	iceParams := try.To1(
-		gatherer.GetLocalParameters())
-	dtlsParams := try.To1(
-		dtls.GetLocalParameters())
-	sctpCapabilities := sctp.GetCapabilities()
+	pc := try.To1(
+		api.NewPeerConnection(config))
 
 	ortc = &ORTC{
-		api:  api,
-		ice:  ice,
-		dtls: dtls,
-		sctp: sctp,
-	}
-
-	ortc.Signal = Signal{
-		ICECandidates:    iceCandidates,
-		ICEParameters:    iceParams,
-		DTLSParameters:   dtlsParams,
-		SCTPCapabilities: sctpCapabilities,
+		api: api,
+		pc:  pc,
 	}
 
 	return
 }
 
-func (o *ORTC) HandShake(signal Signal, iceRole webrtc.ICERole) (err error) {
+func (o *ORTC) HandleConnect(offer Signal) (roffer Signal, err error) {
 	defer err2.Return(&err)
 
 	var (
-		ice  = o.ice
-		dtls = o.dtls
-		sctp = o.sctp
+		pc = o.pc
 	)
 
 	try.To(
-		ice.SetRemoteCandidates(signal.ICECandidates))
+		pc.SetRemoteDescription(webrtc.SessionDescription(offer)))
+
+	answer := try.To1(
+		pc.CreateAnswer(nil))
+
+	gatherComplete := webrtc.GatheringCompletePromise(pc)
 
 	try.To(
-		ice.Start(nil, signal.ICEParameters, &iceRole))
+		pc.SetLocalDescription(answer))
+
+	<-gatherComplete
+
+	roffer = Signal(*pc.LocalDescription())
+
+	return
+}
+
+func (o *ORTC) CreateOffer() (sdp Signal, err error) {
+	defer err2.Return(&err)
+
+	var (
+		pc = o.pc
+	)
 
 	try.To(
-		dtls.Start(signal.DTLSParameters))
+		o.makeOfferWithCandidates())
+
+	offer := try.To1(
+		pc.CreateOffer(nil))
 
 	try.To(
-		sctp.Start(signal.SCTPCapabilities))
+		pc.SetLocalDescription(offer))
+	sdp = Signal(offer)
+
+	return
+}
+
+func (o *ORTC) makeOfferWithCandidates() (err error) {
+	defer err2.Return(&err)
+
+	var (
+		pc = o.pc
+	)
+
+	dc := try.To1(
+		pc.CreateDataChannel("_for_collect_candidates", nil))
+	defer dc.Close()
+
+	ctx, done := context.WithCancel(context.Background())
+	pc.OnNegotiationNeeded(func() {
+		done()
+	})
+	<-ctx.Done()
+
+	return
+}
+
+func (o *ORTC) Handshake(offer Signal) (err error) {
+	defer err2.Return(&err)
+	var pc = o.pc
+
+	try.To(
+		pc.SetRemoteDescription(webrtc.SessionDescription(offer)))
 
 	return
 }
@@ -111,30 +121,35 @@ func (o *ORTC) HandShake(signal Signal, iceRole webrtc.ICERole) (err error) {
 func (o *ORTC) NewDataChannel(id *uint16) (dc *webrtc.DataChannel, err error) {
 	defer err2.Return(&err)
 
-	var api = o.api
+	var pc = o.pc
 
-	params := &webrtc.DataChannelParameters{
+	params := &webrtc.DataChannelInit{
 		ID: id,
 	}
 
 	dc = try.To1(
-		api.NewDataChannel(o.sctp, params))
+		pc.CreateDataChannel("", params))
+	// wait dc opened
+	w := make(chan struct{})
+	dc.OnOpen(func() { close(w) })
+	<-w
 
 	return
 }
 
 func (o *ORTC) OnDataChannel(f func(dc *webrtc.DataChannel)) {
-	o.sctp.OnDataChannel(f)
+	o.pc.OnDataChannel(f)
 }
 
-type Stop interface{ Stop() error }
+func (o *ORTC) PC() *webrtc.PeerConnection {
+	return o.pc
+}
 
-func stop(stoper Stop) { try.To(stoper.Stop()) }
+// type Stop interface{ Stop() error }
+// func stop(stoper Stop) { try.To(stoper.Stop()) }
 
 func (o *ORTC) Close() (err error) {
 	defer err2.Return(&err)
-	defer stop(o.ice)
-	defer stop(o.dtls)
-	defer stop(o.sctp)
+	o.pc.Close()
 	return
 }
