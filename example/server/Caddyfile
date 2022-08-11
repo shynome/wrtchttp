@@ -1,0 +1,17 @@
+{
+  admin off
+}
+
+http://127.0.0.1:8080 {
+  file_server * browse
+}
+
+http://127.0.0.1:8080/signaler {
+  reverse_proxy 127.0.0.1:1338
+}
+
+http://127.0.0.1:8080/go_wasm/* {
+  uri strip_prefix /go_wasm
+  root * {$GOROOT:/opt/go}/misc/wasm/
+  file_server * browse
+}
