@@ -1,14 +1,13 @@
 package wrtchttp
 
 import (
+	"io"
 	"net"
 	"time"
-
-	"github.com/pion/datachannel"
 )
 
 type Conn struct {
-	Conn     datachannel.ReadWriteCloser
+	Conn     io.ReadWriteCloser
 	Listener net.Listener
 }
 

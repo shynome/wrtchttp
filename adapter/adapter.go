@@ -3,19 +3,19 @@ package adapter
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 
 	"github.com/donovanhide/eventsource"
 	"github.com/lainio/err2"
 	"github.com/lainio/err2/try"
-	"github.com/pion/datachannel"
 	"github.com/pion/webrtc/v3"
 	"github.com/shynome/wrtchttp/ortc"
 	"github.com/shynome/wrtchttp/signaler/sdk"
 )
 
 type Adapter interface {
-	Accept() (conn datachannel.ReadWriteCloser, err error)
+	Accept() (conn io.ReadWriteCloser, err error)
 }
 
 type DefaultAdapter struct {
@@ -25,7 +25,7 @@ type DefaultAdapter struct {
 	sdk *sdk.Sdk
 	// key string
 
-	conns chan datachannel.ReadWriteCloser
+	conns chan io.ReadWriteCloser
 }
 
 var _ Adapter = &DefaultAdapter{}
@@ -38,12 +38,12 @@ func NewAdapter(signaler string) (adapter *DefaultAdapter, err error) {
 		wrtcApi: api,
 		ice:     ortc.DefaultConfig,
 		sdk:     sdk,
-		conns:   make(chan datachannel.ReadWriteCloser),
+		conns:   make(chan io.ReadWriteCloser),
 	}
 	return
 }
 
-func (a *DefaultAdapter) Accept() (conn datachannel.ReadWriteCloser, err error) {
+func (a *DefaultAdapter) Accept() (conn io.ReadWriteCloser, err error) {
 	conn, ok := <-a.conns
 	if !ok {
 		return nil, errors.New("Closed")
